@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Job Listings - Final Analytics Project</title>
+  <link rel="stylesheet" type="text/css" href="./style.css">
+  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+  <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css">
+  <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+
+</head>
+<body>
+  <header>
+    <h1>Understanding the Job Market</h1>
+    <p><em>By Gian Carlos V. Tan, BSCS - IV | April 2025</em></p>
+  </header>
+
+  <main>
+    <div class="article">
+
+      <p>Using a dataset of Job Listing data from glassdoor, we will look into certain factors that affect the salary range of a Job.
+        We look into this type of analysis to create or set realistic salary expectations and help future job seekers seek out possible roles that might land them their ideal salary range.
+      This also helps employers look into what other companies of the same sector pay their employee and therefore aid them in aligning their salary ranges with the market standard.
+    </p>
+
+      <h2>About the Dataset</h2>
+      <p>The dataset is compilation of US job postings in Glassdoor from 2017. It is used to analyze and predict salaries.  </p>
+
+      <h2>Data Analysis Process</h2>
+      <p>There are several steps to finding meaningful trends and insights based on the dataset:</p>
+      <ol>
+        <li>Loading the Dataset</li>
+        <li>Cleaning and Processing the Dataset</li>
+        <li>Analysis and Visualizations</li>
+      </ol>
+
+      <h2>Loading the Dataset</h2>
+      <p>We start off by loading in our csv file from Kaggle using the pandas library and load it into a dataframe.
+        We then view the dataset's columns and values to let us see what type of data we are working with.
+      </p>
+      <pre><code class="language-python">
+        import pandas as pd
+
+        df = pd.read_csv('/content/eda_data.csv')
+        df.head()
+        df.columns
+      </code></pre>
+
+      <p>After loading in and viewing the dataset we observe that there are many columns so what we do is simply take a couple of columns.</p>
+
+      <pre><code class="language-python">
+        columns_to_move = ['Job Title','Salary Estimate','Job Description','Rating','job_state','Size','Founded',
+                          'Industry','Sector','python_yn','R_yn','spark','aws','excel','seniority']
+
+        analysis_df = df[columns_to_move].copy()
+        analysis_df.head()
+      </code>
+      </pre>
+        
+      <h2>Data Cleaning</h2>
+      <p>When cleaning the dataset we look into first if there are fields missing or if there are dirty data.</p>
+      
+      <pre><code class="language-python">
+        analysis_df.isnull().sum()
+
+        cols_to_check = ['Job Title', 'Salary Estimate', 'Job Description','job_state','Size',
+                      'Founded','Industry','Sector','python_yn','R_yn','spark','aws','excel','seniority']
+
+        blank_counts = analysis_df[cols_to_check].apply(lambda col: col.astype(str).str.strip().eq('').sum())
+        print(blank_counts)
+      </code>
+      </pre>
+
+      <p>If there are undesired values, we will simply remove those values.</p>
+      <pre><code class="language-python">
+        analysis_df = analysis_df[analysis_df['Founded'] != -1]
+        analysis_df = analysis_df[analysis_df['Size'] != '-1']
+        analysis_df = analysis_df[analysis_df['Size'] != 'Unknown']
+        analysis_df = analysis_df[~analysis_df['Salary Estimate'].str.contains('Per Hour', case=False)]
+      </code>
+      </pre>
+
+      <p>Next thing we want to do is group the salary ranges into categories such as low,medium and high range.
+        To do this, we have to extract the currency value from the salary range.
+        Therefore, we can get first the data and then split it into two columns, max and min. Then get the average based on that.
+      </p>
+
+      <p>
+        In the code below, we extract the salary ranges and create separate columns for it.
+      </p>
+      <pre>
+        <code class="language-python">
+          import re
+
+          def extract_salary_range(salary_str):
+              salary_str = re.sub(r'\(.*\)', '', salary_str)
+              salary_str = salary_str.replace('Employer Provided Salary:', '').strip()
+              
+              salary_str = salary_str.replace('$', '').replace('K', '000')
+              
+              min_salary, max_salary = salary_str.split('-')
+              
+              min_salary = int(min_salary)
+              max_salary = int(max_salary)
+              
+              return min_salary, max_salary
+
+          analysis_df[['min_salary', 'max_salary']] = analysis_df['Salary Estimate'].apply(lambda x: pd.Series(extract_salary_range(x)))
+
+          analysis_df.head()
+        </code>
+      </pre>
+
+      <p>Using the min and max ranges we can now find the average salary.</p>
+
+      <pre>
+        <code class="language-python">
+          def get_avg_salary(min_salary, max_salary):
+              return (min_salary + max_salary) / 2
+
+          analysis_df['avg_salary'] = analysis_df.apply(lambda row: get_avg_salary(row['min_salary'], row['max_salary']), axis=1)
+          analysis_df.head()
+        </code>
+      </pre>
+
+      <p>We can now set a threshold for our salary ranges. In our case, we have set anything below 50k annual to entry level or low, between 50k and 100k annual
+         to medium and above 100k as high. Note: That this is an estimate and a complete generalization, salary ranges might vary by state, location and other factors.</p>
+      
+      <pre>
+        <code class="language-python">
+          def categorize_salary(avg_salary):
+            if avg_salary < 50000:
+                return 'Low'
+            elif avg_salary <= 100000:
+                return 'Medium'
+            else:
+                return 'High'
+                  
+          analysis_df['salary_level'] = analysis_df['avg_salary'].apply(categorize_salary)
+        </code>
+      </pre>
+
+      <p>We will then now categorize the year founded column into meaningful groups:</p>
+
+      <pre>
+        <code class="language-python">
+          def categorize_founded_year(year):
+            if year < 1900:
+                return 'Pre-1900'
+            elif year < 1950:
+                return '1900–1949'
+            elif year < 2000:
+                return '1950–1999'
+            else:
+                return '2000–Present'
+
+        analysis_df['founded_group'] = analysis_df['Founded'].apply(categorize_founded_year)
+        </code>
+      </pre>
+
+      <p>Lastly, we convert the US state codes into its full names for us to easily interpret our Visualizations</p>
+
+      <pre>
+        <code class="language-python">
+          us_state_abbrev_to_name = {
+            'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+            'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+            'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+            'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+            'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+            'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+            'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+            'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+            'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+            'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+            'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+            'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+            'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
+        }
+        
+        analysis_df['job_state_full'] = analysis_df['job_state'].map(us_state_abbrev_to_name)
+        
+        </code>
+      </pre>
+
+
+      <h2>Visualizations</h2>
+
+      <p>
+        For our Visualizations and Analysis we add matplotlib and seaborn for our Visualizations. <br>
+        We will then look into the trends concerning Salary by Sector, Industry, Company Age, Company Size and State.
+      </p>
+
+      <p>
+        Before creating a bar graph to show the trends of Salary against various factors we must first group the values by its categories.
+      </p>
+      <pre>
+        <code class="language-python">
+          sector_salary = analysis_df.groupby('Sector')['avg_salary'].mean().sort_values(ascending=False)
+          team_size_salary = analysis_df.groupby('Size')['avg_salary'].mean().sort_values(ascending=False)
+          job_state_salary = analysis_df.groupby('job_state_full')['avg_salary'].mean().sort_values(ascending=False)
+          year_founded_salary = analysis_df.groupby('founded_group')['avg_salary'].mean().sort_values(ascending=False)
+          industry_salary = analysis_df.groupby('Industry')['avg_salary'].mean().sort_values(ascending=False)
+        </code>
+      </pre>
+
+
+      <h2>Average Salary by Sector</h2>
+      <div id="sectorSalary" style="width: 100%; max-width: 1000px; height: 600px;margin:auto"></div>
+
+      <h2>Average Salary by Industry</h2>
+      <div id="industrySalary" style="width: 100%; max-width: 1000px; height: 600px;margin:auto"></div>
+
+      <h2>Average Salary by Company Size</h2>
+      <div id="sizeSalary" style="width: 100%; max-width: 1000px; height: 600px;margin:auto"></div>
+
+      <h2>Average Salary by State</h2>
+      <div id="stateSalary" style="width: 100%; max-width: 1000px; height: 600px;margin:auto"></div>
+
+      <h2>Average Salary by Company Age</h2>
+      <div id="yearSalary" style="width: 100%; max-width: 1000px; height: 600px;margin:auto"></div>
+    </div>
+
+    <aside>
+      <h3>Reference Links:</h3>
+
+      <ul>
+        <li> <a href="https://colab.research.google.com/drive/1FCVb5RO6f816hu3d2A74YFje4aMWBneo?usp=sharing" target="_blank">Colab Link</a> </li>
+        <li> <a href="https://www.kaggle.com/datasets/thedevastator/jobs-dataset-from-glassdoor" target="_blank">Dataset Source Link</a> </li>
+      </ul>
+      
+    </aside>
+
+  </main>
+
+  <footer>
+    &copy; 2025 COMPSCI E3 - FINAL PROJECT
+  </footer>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchAndPlotCSV();
+    });
+    function fetchAndPlotCSV(){
+    //sector
+    fetch('sector.csv')
+      .then(response => response.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',');
+
+        const sectorIndex = headers.indexOf('Sector');
+        const salaryIndex = headers.indexOf('avg_salary');
+
+        const sectors = [];
+        const salaries = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          sectors.push(row[sectorIndex]);
+          salaries.push(Number(row[salaryIndex]));
+        }
+
+        // Plotly bar chart
+        const data = [{
+          x: sectors,
+          y: salaries,
+          type: 'bar',
+          marker: { color: 'teal' }
+        }];
+
+        const layout = {
+          title: 'Average Salary by Sector',
+          xaxis: { title: 'Sector',
+            tickangle: -45,
+            automargin: true
+          },
+          yaxis: { title: 'Average Salary ($)' }
+        };
+
+        Plotly.react('sectorSalary', data, layout);
+      })
+      .catch(error => console.error('Error loading CSV:', error));
+
+      //industry
+      fetch('industry.csv')
+      .then(response => response.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',');
+
+        const industryIndex = headers.indexOf('Industry');
+        const salaryIndex = headers.indexOf('avg_salary');
+
+        const industry = [];
+        const salaries = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          industry.push(row[industryIndex]);
+          salaries.push(Number(row[salaryIndex]));
+        }
+
+        // Plotly bar chart
+        const data = [{
+          x: industry,
+          y: salaries,
+          type: 'bar',
+          marker: { color: '#3CB371' }
+        }];
+
+        const layout = {
+          title: 'Average Salary by Industry',
+          xaxis: { title: 'Industry',
+            tickangle: -45,
+            automargin: true
+          },
+          yaxis: { title: 'Average Salary ($)' }
+        };
+
+        Plotly.react('industrySalary', data, layout);
+      })
+      .catch(error => console.error('Error loading CSV:', error));
+
+      //size
+      fetch('size.csv')
+      .then(response => response.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',');
+
+        const sizeIndex = headers.indexOf('Size');
+        const salaryIndex = headers.indexOf('avg_salary');
+
+        const sizeComp = [];
+        const salaries = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          sizeComp.push(row[sizeIndex]);
+          salaries.push(Number(row[salaryIndex]));
+        }
+
+        // Plotly bar chart
+        const data = [{
+          x: sizeComp,
+          y: salaries,
+          type: 'bar',
+          marker: { color: '#4169E1' }
+        }];
+
+        const layout = {
+          title: 'Average Salary by Company Size',
+          xaxis: { title: 'Company Size',
+            tickangle: -45,
+            automargin: true
+          },
+          yaxis: { title: 'Average Salary ($)' }
+        };
+
+        Plotly.react('sizeSalary', data, layout);
+      })
+      .catch(error => console.error('Error loading CSV:', error));
+
+      //year
+      fetch('founded_group.csv')
+      .then(response => response.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',');
+
+        const yearIndex = headers.indexOf('founded_group');
+        const salaryIndex = headers.indexOf('avg_salary');
+
+        const years = [];
+        const salaries = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          years.push(row[yearIndex]);
+          salaries.push(Number(row[salaryIndex]));
+        }
+
+        // Plotly bar chart
+        const data = [{
+          x: years,
+          y: salaries,
+          type: 'bar',
+          marker: { color: '#4169E1' }
+        }];
+
+        const layout = {
+          title: 'Average Salary by Company Age',
+          xaxis: { title: 'Year Founded',
+            tickangle: -45,
+            automargin: true
+          },
+          yaxis: { title: 'Average Salary ($)' }
+        };
+
+        Plotly.react('yearSalary', data, layout);
+      })
+      .catch(error => console.error('Error loading CSV:', error));
+
+      //state
+      fetch('state.csv')
+      .then(response => response.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',');
+
+        const stateIndex = headers.indexOf('job_state_full');
+        const salaryIndex = headers.indexOf('avg_salary');
+
+        const states = [];
+        const salaries = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          states.push(row[stateIndex]);
+          salaries.push(Number(row[salaryIndex]));
+        }
+
+        // Plotly bar chart
+        const data = [{
+          x: states,
+          y: salaries,
+          type: 'bar',
+          marker: { color: '#4169E1' }
+        }];
+
+        const layout = {
+          title: 'Average Salary by Company Location',
+          xaxis: { title: 'Location',
+            tickangle: -45,
+            automargin: true
+          },
+          yaxis: { title: 'Average Salary ($)' }
+        };
+
+        Plotly.react('stateSalary', data, layout);
+      })
+      .catch(error => console.error('Error loading CSV:', error));
+    }
+
+  </script>
+</body>
+</html>
